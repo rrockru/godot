@@ -3,9 +3,10 @@
 /*************************************************************************/
 /*                       This file is part of:                           */
 /*                           GODOT ENGINE                                */
-/*                    http://www.godotengine.org                         */
+/*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -26,6 +27,7 @@
 /* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
+
 #ifndef TIMER_H
 #define TIMER_H
 
@@ -33,18 +35,25 @@
 
 class Timer : public Node {
 
-	OBJ_TYPE( Timer, Node );
+	GDCLASS(Timer, Node);
 
 	float wait_time;
 	bool one_shot;
 	bool autostart;
+	bool processing;
+	bool paused;
 
 	double time_left;
-protected:
 
+protected:
 	void _notification(int p_what);
 	static void _bind_methods();
+
 public:
+	enum TimerProcessMode {
+		TIMER_PROCESS_PHYSICS,
+		TIMER_PROCESS_IDLE,
+	};
 
 	void set_wait_time(float p_time);
 	float get_wait_time() const;
@@ -55,12 +64,25 @@ public:
 	void set_autostart(bool p_start);
 	bool has_autostart() const;
 
-	void start();
+	void start(float p_time = -1);
 	void stop();
+
+	void set_paused(bool p_paused);
+	bool is_paused() const;
+
+	bool is_stopped() const;
 
 	float get_time_left() const;
 
+	void set_timer_process_mode(TimerProcessMode p_mode);
+	TimerProcessMode get_timer_process_mode() const;
 	Timer();
+
+private:
+	TimerProcessMode timer_process_mode;
+	void _set_process(bool p_process, bool p_force = false);
 };
+
+VARIANT_ENUM_CAST(Timer::TimerProcessMode);
 
 #endif // TIMER_H

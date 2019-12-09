@@ -1,102 +1,155 @@
 import os
-import sys
-import string
+
 
 def is_active():
-	return True
-	
+    return True
+
+
 def get_name():
-	return "JavaScript"
+    return 'JavaScript'
+
 
 def can_build():
+    return 'EM_CONFIG' in os.environ or os.path.exists(os.path.expanduser('~/.emscripten'))
 
-        import os
-        if (not os.environ.has_key("EMSCRIPTEN_ROOT")):
-        	return False
-	return True
 
 def get_opts():
+    from SCons.Variables import BoolVariable
+    return [
+        # eval() can be a security concern, so it can be disabled.
+        BoolVariable('javascript_eval', 'Enable JavaScript eval interface', True),
+    ]
 
-	return [
-		['compress','Compress JS Executable','no']
-	]
 
 def get_flags():
-
-	return [
-		('lua', 'no'),
-		('tools', 'no'),
-		('nedmalloc', 'no'),
-		('theora', 'no'),
-		('tools', 'no'),
-		('nedmalloc', 'no'),
-		('vorbis', 'yes'),
-		('musepack', 'no'),
-		('squirrel', 'no'),
-		('squish', 'no'),
-		('speex', 'no'),
-		('old_scenes', 'no'),
-#		('default_gui_theme', 'no'),
-
-		#('builtin_zlib', 'no'),
-	]
-
+    return [
+        ('tools', False),
+        ('builtin_pcre2_with_jit', False),
+        # Disabling the mbedtls module reduces file size.
+        # The module has little use due to the limited networking functionality
+        # in this platform. For the available networking methods, the browser
+        # manages TLS.
+        ('module_mbedtls_enabled', False),
+    ]
 
 
 def configure(env):
 
+    ## Build type
 
-	env.Append(CPPPATH=['#platform/android'])
-	
-	env['OBJSUFFIX'] = ".js.o"
-	env['LIBSUFFIX'] = ".js.a"
-	env['PROGSUFFIX'] = ".html"
-	
-	em_path=os.environ["EMSCRIPTEN_ROOT"]
-	
-	env['ENV']['PATH'] = em_path+":"+env['ENV']['PATH']
+    if env['target'] != 'debug':
+        # Use -Os to prioritize optimizing for reduced file size. This is
+        # particularly valuable for the web platform because it directly
+        # decreases download time.
+        # -Os reduces file size by around 5 MiB over -O3. -Oz only saves about
+        # 100 KiB over -Os, which does not justify the negative impact on
+        # run-time performance.
+        env.Append(CCFLAGS=['-Os'])
+        env.Append(LINKFLAGS=['-Os'])
+        if env['target'] == 'release_debug':
+            env.Append(CPPDEFINES=['DEBUG_ENABLED'])
+            # Retain function names for backtraces at the cost of file size.
+            env.Append(LINKFLAGS=['--profiling-funcs'])
+    else:
+        env.Append(CPPDEFINES=['DEBUG_ENABLED'])
+        env.Append(CCFLAGS=['-O1', '-g'])
+        env.Append(LINKFLAGS=['-O1', '-g'])
+        env.Append(LINKFLAGS=['-s', 'ASSERTIONS=1'])
 
-	env['CC'] = em_path+'/emcc'
-	env['CXX'] = em_path+'/emcc'
-	env['AR'] = em_path+"/emar"
-	env['RANLIB'] = em_path+"/emranlib"
+    ## Compiler configuration
 
-#	env.Append(LIBS=['c','m','stdc++','log','GLESv1_CM','GLESv2'])
+    env['ENV'] = os.environ
 
-#	env["LINKFLAGS"]= string.split(" -g --sysroot="+ld_sysroot+" -Wl,--no-undefined -Wl,-z,noexecstack ")
+    em_config_file = os.getenv('EM_CONFIG') or os.path.expanduser('~/.emscripten')
+    if not os.path.exists(em_config_file):
+        raise RuntimeError("Emscripten configuration file '%s' does not exist" % em_config_file)
+    with open(em_config_file) as f:
+        em_config = {}
+        try:
+            # Emscripten configuration file is a Python file with simple assignments.
+            exec(f.read(), em_config)
+        except StandardError as e:
+            raise RuntimeError("Emscripten configuration file '%s' is invalid:\n%s" % (em_config_file, e))
+    if 'BINARYEN_ROOT' in em_config and os.path.isdir(os.path.join(em_config.get('BINARYEN_ROOT'), 'emscripten')):
+        # New style, emscripten path as a subfolder of BINARYEN_ROOT
+        env.PrependENVPath('PATH', os.path.join(em_config.get('BINARYEN_ROOT'), 'emscripten'))
+    elif 'EMSCRIPTEN_ROOT' in em_config:
+        # Old style (but can be there as a result from previous activation, so do last)
+        env.PrependENVPath('PATH', em_config.get('EMSCRIPTEN_ROOT'))
+    else:
+        raise RuntimeError("'BINARYEN_ROOT' or 'EMSCRIPTEN_ROOT' missing in Emscripten configuration file '%s'" % em_config_file)
 
-	if (env["target"]=="release"):
+    env['CC'] = 'emcc'
+    env['CXX'] = 'em++'
+    env['LINK'] = 'emcc'
 
-		env.Append(CCFLAGS=['-O2'])
-		env['OBJSUFFIX'] = "_opt"+env['OBJSUFFIX']
-		env['LIBSUFFIX'] = "_opt"+env['LIBSUFFIX']
+    env['AR'] = 'emar'
+    env['RANLIB'] = 'emranlib'
 
-	elif (env["target"]=="release_debug"):
+    # Use TempFileMunge since some AR invocations are too long for cmd.exe.
+    # Use POSIX-style paths, required with TempFileMunge.
+    env['ARCOM_POSIX'] = env['ARCOM'].replace(
+        '$TARGET', '$TARGET.posix').replace(
+        '$SOURCES', '$SOURCES.posix')
+    env['ARCOM'] = '${TEMPFILE(ARCOM_POSIX)}'
 
-		env.Append(CCFLAGS=['-O2','-DDEBUG_ENABLED'])
-		env['OBJSUFFIX'] = "_optd"+env['OBJSUFFIX']
-		env['LIBSUFFIX'] = "_optd"+env['LIBSUFFIX']
+    # All intermediate files are just LLVM bitcode.
+    env['OBJPREFIX'] = ''
+    env['OBJSUFFIX'] = '.bc'
+    env['PROGPREFIX'] = ''
+    # Program() output consists of multiple files, so specify suffixes manually at builder.
+    env['PROGSUFFIX'] = ''
+    env['LIBPREFIX'] = 'lib'
+    env['LIBSUFFIX'] = '.bc'
+    env['LIBPREFIXES'] = ['$LIBPREFIX']
+    env['LIBSUFFIXES'] = ['$LIBSUFFIX']
 
-	elif (env["target"]=="debug"):
+    ## Compile flags
 
-		env.Append(CCFLAGS=['-D_DEBUG', '-Wall', '-O2', '-DDEBUG_ENABLED'])
-		env.Append(CPPFLAGS=['-DDEBUG_MEMORY_ALLOC'])
+    env.Prepend(CPPPATH=['#platform/javascript'])
+    env.Append(CPPDEFINES=['JAVASCRIPT_ENABLED', 'UNIX_ENABLED'])
 
-	env.Append(CPPFLAGS=["-fno-exceptions",'-DNO_SAFE_CAST','-fno-rtti'])
-	env.Append(CPPFLAGS=['-DJAVASCRIPT_ENABLED', '-DUNIX_ENABLED', '-DNO_FCNTL','-DMPC_FIXED_POINT','-DTYPED_METHOD_BIND','-DNO_THREADS'])
-	env.Append(CPPFLAGS=['-DGLES2_ENABLED'])
-	env.Append(CPPFLAGS=['-DGLES_NO_CLIENT_ARRAYS'])
-	env.Append(CPPFLAGS=['-s','ASM_JS=1'])
-	env.Append(CPPFLAGS=['-s','FULL_ES2=1'])
-#	env.Append(CPPFLAGS=['-DANDROID_ENABLED', '-DUNIX_ENABLED','-DMPC_FIXED_POINT'])
-	if (env["compress"]=="yes"):
-		lzma_binpath = em_path+"/third_party/lzma.js/lzma-native"
-		lzma_decoder = em_path+"/third_party/lzma.js/lzma-decoder.js"
-		lzma_dec = "LZMA.decompress"
+    # No multi-threading (SharedArrayBuffer) available yet,
+    # once feasible also consider memory buffer size issues.
+    env.Append(CPPDEFINES=['NO_THREADS'])
 
-		env.Append(LINKFLAGS=['--compression',lzma_binpath+","+lzma_decoder+","+lzma_dec])
+    # Disable exceptions and rtti on non-tools (template) builds
+    if not env['tools']:
+        # These flags help keep the file size down.
+        env.Append(CCFLAGS=['-fno-exceptions', '-fno-rtti'])
+        # Don't use dynamic_cast, necessary with no-rtti.
+        env.Append(CPPDEFINES=['NO_SAFE_CAST'])
 
-	env.Append(LINKFLAGS=['-s','ASM_JS=1'])
-	env.Append(LINKFLAGS=['-O2'])
+    if env['javascript_eval']:
+        env.Append(CPPDEFINES=['JAVASCRIPT_EVAL_ENABLED'])
 
+    ## Link flags
 
+    # We use IDBFS in javascript_main.cpp. Since Emscripten 1.39.1 it needs to
+    # be linked explicitly.
+    env.Append(LIBS=['idbfs.js'])
+
+    env.Append(LINKFLAGS=['-s', 'BINARYEN=1'])
+
+    # This needs to be defined for Emscripten using 'fastcomp' (default pre-1.39.0)
+    # and undefined if using 'upstream'. And to make things simple, earlier
+    # Emscripten versions didn't include 'fastcomp' in their path, so we check
+    # against the presence of 'upstream' to conditionally add the flag.
+    if not "upstream" in em_config['EMSCRIPTEN_ROOT']:
+        env.Append(LINKFLAGS=['-s', 'BINARYEN_TRAP_MODE=\'clamp\''])
+
+    # Allow increasing memory buffer size during runtime. This is efficient
+    # when using WebAssembly (in comparison to asm.js) and works well for
+    # us since we don't know requirements at compile-time.
+    env.Append(LINKFLAGS=['-s', 'ALLOW_MEMORY_GROWTH=1'])
+
+    # This setting just makes WebGL 2 APIs available, it does NOT disable WebGL 1.
+    env.Append(LINKFLAGS=['-s', 'USE_WEBGL2=1'])
+
+    env.Append(LINKFLAGS=['-s', 'INVOKE_RUN=0'])
+
+    # TODO: Reevaluate usage of this setting now that engine.js manages engine runtime.
+    env.Append(LINKFLAGS=['-s', 'NO_EXIT_RUNTIME=1'])
+
+    #adding flag due to issue with emscripten 1.38.41 callMain method https://github.com/emscripten-core/emscripten/blob/incoming/ChangeLog.md#v13841-08072019
+    env.Append(LINKFLAGS=['-s', 'EXTRA_EXPORTED_RUNTIME_METHODS=["callMain"]'])

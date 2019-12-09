@@ -1,253 +1,194 @@
+/* clang-format off */
 [vertex]
 
 #ifdef USE_GLES_OVER_GL
+#define lowp
 #define mediump
 #define highp
 #else
-precision mediump float;
-precision mediump int;
+precision highp float;
+precision highp int;
 #endif
 
 attribute highp vec4 vertex_attrib; // attrib:0
-#ifdef USE_CUBEMAP
+/* clang-format on */
+
+#if defined(USE_CUBEMAP) || defined(USE_PANORAMA)
 attribute vec3 cube_in; // attrib:4
 #else
 attribute vec2 uv_in; // attrib:4
 #endif
+
 attribute vec2 uv2_in; // attrib:5
 
-#ifdef USE_CUBEMAP
+#if defined(USE_CUBEMAP) || defined(USE_PANORAMA)
 varying vec3 cube_interp;
 #else
 varying vec2 uv_interp;
 #endif
-
 varying vec2 uv2_interp;
+
+// These definitions are here because the shader-wrapper builder does
+// not understand `#elif defined()`
+#ifdef USE_DISPLAY_TRANSFORM
+#endif
+
+#ifdef USE_COPY_SECTION
+uniform highp vec4 copy_section;
+#elif defined(USE_DISPLAY_TRANSFORM)
+uniform highp mat4 display_transform;
+#endif
 
 void main() {
 
-#ifdef USE_CUBEMAP
+#if defined(USE_CUBEMAP) || defined(USE_PANORAMA)
 	cube_interp = cube_in;
+#elif defined(USE_ASYM_PANO)
+	uv_interp = vertex_attrib.xy;
 #else
 	uv_interp = uv_in;
 #endif
+
 	uv2_interp = uv2_in;
 	gl_Position = vertex_attrib;
+
+#ifdef USE_COPY_SECTION
+	uv_interp = copy_section.xy + uv_interp * copy_section.zw;
+	gl_Position.xy = (copy_section.xy + (gl_Position.xy * 0.5 + 0.5) * copy_section.zw) * 2.0 - 1.0;
+#elif defined(USE_DISPLAY_TRANSFORM)
+	uv_interp = (display_transform * vec4(uv_in, 1.0, 1.0)).xy;
+#endif
 }
 
+/* clang-format off */
 [fragment]
 
+#define M_PI 3.14159265359
+
 #ifdef USE_GLES_OVER_GL
+#define lowp
 #define mediump
 #define highp
+#else
+#if defined(USE_HIGHP_PRECISION)
+precision highp float;
+precision highp int;
 #else
 precision mediump float;
 precision mediump int;
 #endif
+#endif
 
-
-#define LUM_RANGE 4.0
-
-
-#ifdef USE_CUBEMAP
+#if defined(USE_CUBEMAP) || defined(USE_PANORAMA)
 varying vec3 cube_interp;
-uniform samplerCube source_cube;
 #else
 varying vec2 uv_interp;
-uniform sampler2D source;
 #endif
+/* clang-format on */
+
+#ifdef USE_ASYM_PANO
+uniform highp mat4 pano_transform;
+uniform highp vec4 asym_proj;
+#endif
+
+#ifdef USE_CUBEMAP
+uniform samplerCube source_cube; // texunit:0
+#else
+uniform sampler2D source; // texunit:0
+#endif
+
+#ifdef SEP_CBCR_TEXTURE
+uniform sampler2D CbCr; //texunit:1
+#endif
+
 varying vec2 uv2_interp;
 
-#ifdef USE_GLOW
-
-uniform sampler2D glow_source;
-
+#ifdef USE_MULTIPLIER
+uniform float multiplier;
 #endif
 
-
-#if defined(USE_HDR) && defined(USE_GLOW_COPY)
-uniform highp float hdr_glow_treshold;
-uniform highp float hdr_glow_scale;
+#ifdef USE_CUSTOM_ALPHA
+uniform float custom_alpha;
 #endif
 
-#ifdef USE_HDR
+#if defined(USE_PANORAMA) || defined(USE_ASYM_PANO)
+uniform highp mat4 sky_transform;
 
-uniform sampler2D hdr_source;
-uniform highp float tonemap_exposure;
+vec4 texturePanorama(sampler2D pano, vec3 normal) {
 
-#endif
+	vec2 st = vec2(
+			atan(normal.x, normal.z),
+			acos(normal.y));
 
-#ifdef USE_BCS
+	if (st.x < 0.0)
+		st.x += M_PI * 2.0;
 
-uniform vec3 bcs;
+	st /= vec2(M_PI * 2.0, M_PI);
 
-#endif
-
-#ifdef USE_GAMMA
-
-uniform float gamma;
-
-#endif
-
-#ifdef USE_GLOW_COPY
-
-uniform float bloom;
-uniform float bloom_treshold;
+	return texture2D(pano, st);
+}
 
 #endif
-
-#if defined(BLUR_V_PASS) || defined(BLUR_H_PASS) || defined(USE_HDR_REDUCE)
-
-uniform vec2 pixel_size;
-
-#ifdef USE_HDR_STORE
-
-uniform highp float hdr_time_delta;
-uniform highp float hdr_exp_adj_speed;
-uniform highp float min_luminance;
-uniform highp float max_luminance;
-uniform sampler2D source_vd_lum;
-
-#endif
-
-#endif
-
-#ifdef USE_ENERGY
-
-uniform highp float energy;
-
-#endif
-
 
 void main() {
 
-	//vec4 color = color_interp;
-#ifdef USE_CUBEMAP
-	vec4 color = textureCube( source_cube,  normalize(cube_interp) );
+#ifdef USE_PANORAMA
 
+	vec3 cube_normal = normalize(cube_interp);
+	cube_normal.z = -cube_normal.z;
+	cube_normal = mat3(sky_transform) * cube_normal;
+	cube_normal.z = -cube_normal.z;
+
+	vec4 color = texturePanorama(source, cube_normal);
+
+#elif defined(USE_ASYM_PANO)
+
+	// When an asymmetrical projection matrix is used (applicable for stereoscopic rendering i.e. VR) we need to do this calculation per fragment to get a perspective correct result.
+	// Asymmetrical projection means the center of projection is no longer in the center of the screen but shifted.
+	// The Matrix[2][0] (= asym_proj.x) and Matrix[2][1] (= asym_proj.z) values are what provide the right shift in the image.
+
+	vec3 cube_normal;
+	cube_normal.z = -1.0;
+	cube_normal.x = (cube_normal.z * (-uv_interp.x - asym_proj.x)) / asym_proj.y;
+	cube_normal.y = (cube_normal.z * (-uv_interp.y - asym_proj.z)) / asym_proj.a;
+	cube_normal = mat3(sky_transform) * mat3(pano_transform) * cube_normal;
+	cube_normal.z = -cube_normal.z;
+
+	vec4 color = texturePanorama(source, normalize(cube_normal.xyz));
+
+#elif defined(USE_CUBEMAP)
+	vec4 color = textureCube(source_cube, normalize(cube_interp));
+#elif defined(SEP_CBCR_TEXTURE)
+	vec4 color;
+	color.r = texture2D(source, uv_interp).r;
+	color.gb = texture2D(CbCr, uv_interp).rg - vec2(0.5, 0.5);
+	color.a = 1.0;
 #else
-	vec4 color = texture2D( source,  uv_interp );
+	vec4 color = texture2D(source, uv_interp);
 #endif
 
-	//color.rg=uv_interp;
+#ifdef YCBCR_TO_RGB
+	// YCbCr -> RGB conversion
 
-#ifdef USE_BCS
-
-	color.rgb = mix(vec3(0.0),color.rgb,bcs.x);
-	color.rgb = mix(vec3(0.5),color.rgb,bcs.y);
-	color.rgb = mix(vec3(dot(vec3(1.0),color.rgb)*0.33333),color.rgb,bcs.z);
-
+	// Using BT.601, which is the standard for SDTV is provided as a reference
+	color.rgb = mat3(
+						vec3(1.00000, 1.00000, 1.00000),
+						vec3(0.00000, -0.34413, 1.77200),
+						vec3(1.40200, -0.71414, 0.00000)) *
+				color.rgb;
 #endif
 
-#ifdef BLUR_V_PASS
-
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*-3.0));
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*-2.0));
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*-1.0));
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*1.0));
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*2.0));
-	color+=texture2D(source,uv_interp+vec2(0.0,pixel_size.y*3.0));
-
-	color*=(1.0/7.0);
-
+#ifdef USE_NO_ALPHA
+	color.a = 1.0;
 #endif
 
-#ifdef BLUR_H_PASS
-
-
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*-3.0,0.0));
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*-2.0,0.0));
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*-1.0,0.0));
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*1.0,0.0));
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*2.0,0.0));
-	color+=texture2D(source,uv_interp+vec2(pixel_size.x*3.0,0.0));
-
-	color*=(1.0/7.0);
-
+#ifdef USE_CUSTOM_ALPHA
+	color.a = custom_alpha;
 #endif
 
-#ifdef USE_HDR
-
-	highp vec4 _mult = vec4(1.0 / (256.0 * 256.0 * 256.0),1.0 / (256.0 * 256.0),1.0 / 256.0,1);
-	highp float hdr_lum = dot(texture2D( hdr_source, vec2(0.0) ), _mult  );
-	color.rgb*=LUM_RANGE;
-	hdr_lum*=LUM_RANGE; //restore to full range
-	highp float tone_scale = tonemap_exposure / hdr_lum; //only linear supported
-	color.rgb*=tone_scale;
-
+#ifdef USE_MULTIPLIER
+	color.rgb *= multiplier;
 #endif
 
-#ifdef USE_GLOW_COPY
-
-	highp vec3 glowcol = color.rgb*color.a+step(bloom_treshold,dot(vec3(0.3333,0.3333,0.3333),color.rgb))*bloom*color.rgb;
-
-#ifdef USE_HDR
-	highp float collum = max(color.r,max(color.g,color.b));
-	glowcol+=color.rgb*max(collum-hdr_glow_treshold,0.0)*hdr_glow_scale;
-#endif
-	color.rgb=glowcol;
-	color.a=0.0;
-
-#endif
-
-
-#ifdef USE_GLOW
-
-	vec4 glow = texture2D( glow_source,  uv2_interp );
-
-	color.rgb+=glow.rgb;
-
-#endif
-
-#ifdef USE_GAMMA
-
-	color.rgb = pow(color.rgb,gamma);
-
-#endif
-
-
-#ifdef USE_HDR_COPY
-
-	//highp float lum = dot(color.rgb,highp vec3(1.0/3.0,1.0/3.0,1.0/3.0));
-	highp float lum = max(color.r,max(color.g,color.b));
-	highp vec4 comp = fract(lum * vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0));
-	comp -= comp.xxyz * vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
-	color=comp;
-#endif
-
-#ifdef USE_HDR_REDUCE
-
-	highp vec4 _multcv = vec4(1.0 / (256.0 * 256.0 * 256.0),1.0 / (256.0 * 256.0),1.0 / 256.0, 1.0);
-	highp float lum_accum = dot(color,_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(-pixel_size.x,-pixel_size.y) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(0.0,-pixel_size.y) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(pixel_size.x,-pixel_size.y) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(-pixel_size.x,0.0) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(pixel_size.x,0.0) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(-pixel_size.x,pixel_size.y) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(0.0,pixel_size.y) ),_multcv  );
-	lum_accum += dot(texture2D( source,  uv_interp+vec2(pixel_size.x,pixel_size.y) ),_multcv  );
-	lum_accum/=9.0;
-
-#ifdef USE_HDR_STORE
-
-	highp float vd_lum = dot(texture2D( source_vd_lum, vec2(0.0) ), _multcv  );
-	lum_accum = clamp( vd_lum + (lum_accum-vd_lum)*hdr_time_delta*hdr_exp_adj_speed,min_luminance*(1.0/LUM_RANGE),max_luminance*(1.0/LUM_RANGE));
-#endif
-
-	highp vec4 comp = fract(lum_accum * vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0));
-	comp -= comp.xxyz * vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
-	color=comp;
-#endif
-
-#ifdef USE_RGBE
-
-	color.rgb = pow(color.rgb,color.a*255.0-(8.0+128.0));
-#endif
-
-#ifdef USE_ENERGY
-	color.rgb*=energy;
-#endif
 	gl_FragColor = color;
 }
-
