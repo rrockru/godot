@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -72,8 +72,8 @@ public:
 	AABB merge(const AABB &p_with) const;
 	void merge_with(const AABB &p_aabb); ///merge with another AABB
 	AABB intersection(const AABB &p_aabb) const; ///get box where two intersect, empty if no intersection occurs
-	bool intersects_segment(const Vector3 &p_from, const Vector3 &p_to, Vector3 *r_clip = NULL, Vector3 *r_normal = NULL) const;
-	bool intersects_ray(const Vector3 &p_from, const Vector3 &p_dir, Vector3 *r_clip = NULL, Vector3 *r_normal = NULL) const;
+	bool intersects_segment(const Vector3 &p_from, const Vector3 &p_to, Vector3 *r_clip = nullptr, Vector3 *r_normal = nullptr) const;
+	bool intersects_ray(const Vector3 &p_from, const Vector3 &p_dir, Vector3 *r_clip = nullptr, Vector3 *r_normal = nullptr) const;
 	_FORCE_INLINE_ bool smits_intersect_ray(const Vector3 &p_from, const Vector3 &p_dir, real_t t0, real_t t1) const;
 
 	_FORCE_INLINE_ bool intersects_convex_shape(const Plane *p_planes, int p_plane_count) const;

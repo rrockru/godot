@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -81,7 +81,7 @@ void *Memory::alloc_static(size_t p_bytes, bool p_pad_align) {
 
 	void *mem = malloc(p_bytes + (prepad ? PAD_ALIGN : 0));
 
-	ERR_FAIL_COND_V(!mem, NULL);
+	ERR_FAIL_COND_V(!mem, nullptr);
 
 	atomic_increment(&alloc_count);
 
@@ -103,7 +103,7 @@ void *Memory::alloc_static(size_t p_bytes, bool p_pad_align) {
 
 void *Memory::realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align) {
 
-	if (p_memory == NULL) {
+	if (p_memory == nullptr) {
 		return alloc_static(p_bytes, p_pad_align);
 	}
 
@@ -130,12 +130,12 @@ void *Memory::realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align) {
 
 		if (p_bytes == 0) {
 			free(mem);
-			return NULL;
+			return nullptr;
 		} else {
 			*s = p_bytes;
 
 			mem = (uint8_t *)realloc(mem, p_bytes + PAD_ALIGN);
-			ERR_FAIL_COND_V(!mem, NULL);
+			ERR_FAIL_COND_V(!mem, nullptr);
 
 			s = (uint64_t *)mem;
 
@@ -147,7 +147,7 @@ void *Memory::realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align) {
 
 		mem = (uint8_t *)realloc(mem, p_bytes);
 
-		ERR_FAIL_COND_V(mem == NULL && p_bytes > 0, NULL);
+		ERR_FAIL_COND_V(mem == nullptr && p_bytes > 0, nullptr);
 
 		return mem;
 	}
@@ -155,7 +155,7 @@ void *Memory::realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align) {
 
 void Memory::free_static(void *p_ptr, bool p_pad_align) {
 
-	ERR_FAIL_COND(p_ptr == NULL);
+	ERR_FAIL_COND(p_ptr == nullptr);
 
 	uint8_t *mem = (uint8_t *)p_ptr;
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,7 +34,7 @@
 #include "core/ustring.h"
 #include "os/os.h"
 
-static ErrorHandlerList *error_handler_list = NULL;
+static ErrorHandlerList *error_handler_list = nullptr;
 
 void add_error_handler(ErrorHandlerList *p_handler) {
 
@@ -48,7 +48,7 @@ void remove_error_handler(ErrorHandlerList *p_handler) {
 
 	_global_lock();
 
-	ErrorHandlerList *prev = NULL;
+	ErrorHandlerList *prev = nullptr;
 	ErrorHandlerList *l = error_handler_list;
 
 	while (l) {
@@ -106,7 +106,7 @@ void _err_print_error(const char *p_function, const char *p_file, int p_line, co
 void _err_print_index_error(const char *p_function, const char *p_file, int p_line, int64_t p_index, int64_t p_size, const char *p_index_str, const char *p_size_str, const char *p_message, bool fatal) {
 
 	String fstr(fatal ? "FATAL: " : "");
-	String err(fstr + "Index " + p_index_str + "=" + itos(p_index) + " out of size (" + p_size_str + "=" + itos(p_size) + ")");
+	String err(fstr + "Index " + p_index_str + " = " + itos(p_index) + " is out of bounds (" + p_size_str + " = " + itos(p_size) + ").");
 	_err_print_error(p_function, p_file, p_line, err.utf8().get_data(), p_message);
 }
 

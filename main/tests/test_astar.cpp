@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -68,7 +68,7 @@ public:
 
 bool test_abc() {
 	ABCX abcx;
-	PoolVector<int> path = abcx.get_id_path(ABCX::A, ABCX::C);
+	Vector<int> path = abcx.get_id_path(ABCX::A, ABCX::C);
 	bool ok = path.size() == 3;
 	int i = 0;
 	ok = ok && path[i++] == ABCX::A;
@@ -79,7 +79,7 @@ bool test_abc() {
 
 bool test_abcx() {
 	ABCX abcx;
-	PoolVector<int> path = abcx.get_id_path(ABCX::X, ABCX::C);
+	Vector<int> path = abcx.get_id_path(ABCX::X, ABCX::C);
 	bool ok = path.size() == 4;
 	int i = 0;
 	ok = ok && path[i++] == ABCX::X;
@@ -304,7 +304,7 @@ bool test_solutions() {
 		for (int u = 0; u < N; u++)
 			for (int v = 0; v < N; v++)
 				if (u != v) {
-					PoolVector<int> route = a.get_id_path(u, v);
+					Vector<int> route = a.get_id_path(u, v);
 					if (!Math::is_inf(d[u][v])) {
 						// Reachable
 						if (route.size() == 0) {
@@ -351,7 +351,7 @@ TestFunc test_funcs[] = {
 	test_abcx,
 	test_add_remove,
 	test_solutions,
-	NULL
+	nullptr
 };
 
 MainLoop *test() {
@@ -370,7 +370,7 @@ MainLoop *test() {
 	}
 	OS::get_singleton()->print("\n");
 	OS::get_singleton()->print("Passed %i of %i tests\n", passed, count);
-	return NULL;
+	return nullptr;
 }
 
 } // namespace TestAStar

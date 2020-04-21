@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,14 +35,13 @@
 
 #include "../mono_gc_handle.h"
 #include "../utils/macros.h"
-#include "../utils/thread_local.h"
 #include "gd_mono_header.h"
 
 #include "core/object.h"
 #include "core/reference.h"
 
 #define UNHANDLED_EXCEPTION(m_exc)                     \
-	if (unlikely(m_exc != NULL)) {                     \
+	if (unlikely(m_exc != nullptr)) {                  \
 		GDMonoUtils::debug_unhandled_exception(m_exc); \
 		GD_UNREACHABLE();                              \
 	}
@@ -78,20 +77,29 @@ _FORCE_INLINE_ void hash_combine(uint32_t &p_hash, const uint32_t &p_with_hash) 
 /**
  * If the object has a csharp script, returns the target of the gchandle stored in the script instance
  * Otherwise returns a newly constructed MonoObject* which is attached to the object
- * Returns NULL on error
+ * Returns nullptr on error
  */
 MonoObject *unmanaged_get_managed(Object *unmanaged);
 
 void set_main_thread(MonoThread *p_thread);
-void attach_current_thread();
+MonoThread *attach_current_thread();
 void detach_current_thread();
+void detach_current_thread(MonoThread *p_mono_thread);
 MonoThread *get_current_thread();
+bool is_thread_attached();
 
 _FORCE_INLINE_ bool is_main_thread() {
-	return mono_domain_get() != NULL && mono_thread_get_main() == mono_thread_current();
+	return mono_domain_get() != nullptr && mono_thread_get_main() == mono_thread_current();
 }
 
-void runtime_object_init(MonoObject *p_this_obj, GDMonoClass *p_class, MonoException **r_exc = NULL);
+uint32_t new_strong_gchandle(MonoObject *p_object);
+uint32_t new_strong_gchandle_pinned(MonoObject *p_object);
+uint32_t new_weak_gchandle(MonoObject *p_object);
+void free_gchandle(uint32_t p_gchandle);
+
+void runtime_object_init(MonoObject *p_this_obj, GDMonoClass *p_class, MonoException **r_exc = nullptr);
+
+bool mono_delegate_equal(MonoDelegate *p_a, MonoDelegate *p_b);
 
 GDMonoClass *get_object_class(MonoObject *p_object);
 GDMonoClass *type_get_proxy_class(const StringName &p_type);
@@ -99,6 +107,7 @@ GDMonoClass *get_class_native_base(GDMonoClass *p_class);
 
 MonoObject *create_managed_for_godot_object(GDMonoClass *p_class, const StringName &p_native, Object *p_object);
 
+MonoObject *create_managed_from(const StringName &p_from);
 MonoObject *create_managed_from(const NodePath &p_from);
 MonoObject *create_managed_from(const RID &p_from);
 MonoObject *create_managed_from(const Array &p_from, GDMonoClass *p_class);
@@ -121,7 +130,7 @@ void print_unhandled_exception(MonoException *p_exc);
  */
 void set_pending_exception(MonoException *p_exc);
 
-extern _THREAD_LOCAL_(int) current_invoke_count;
+extern thread_local int current_invoke_count;
 
 _FORCE_INLINE_ int get_runtime_invoke_count() {
 	return current_invoke_count;
@@ -142,9 +151,19 @@ uint64_t unbox_enum_value(MonoObject *p_boxed, MonoType *p_enum_basetype, bool &
 
 void dispose(MonoObject *p_mono_object, MonoException **r_exc);
 
+struct ScopeThreadAttach {
+	ScopeThreadAttach();
+	~ScopeThreadAttach();
+
+private:
+	MonoThread *mono_thread;
+};
+
+StringName get_native_godot_class_name(GDMonoClass *p_class);
+
 } // namespace GDMonoUtils
 
-#define NATIVE_GDMONOCLASS_NAME(m_class) (GDMonoMarshal::mono_string_to_godot((MonoString *)m_class->get_field(BINDINGS_NATIVE_NAME_FIELD)->get_value(NULL)))
+#define NATIVE_GDMONOCLASS_NAME(m_class) (GDMonoUtils::get_native_godot_class_name(m_class))
 
 #define GD_MONO_BEGIN_RUNTIME_INVOKE                                              \
 	int &_runtime_invoke_count_ref = GDMonoUtils::get_runtime_invoke_count_ref(); \
@@ -152,5 +171,16 @@ void dispose(MonoObject *p_mono_object, MonoException **r_exc);
 
 #define GD_MONO_END_RUNTIME_INVOKE \
 	_runtime_invoke_count_ref -= 1;
+
+#define GD_MONO_SCOPE_THREAD_ATTACH                                   \
+	GDMonoUtils::ScopeThreadAttach __gdmono__scope__thread__attach__; \
+	(void)__gdmono__scope__thread__attach__;
+
+#ifdef DEBUG_ENABLED
+#define GD_MONO_ASSERT_THREAD_ATTACHED \
+	{ CRASH_COND(!GDMonoUtils::is_thread_attached()); }
+#else
+#define GD_MONO_ASSERT_THREAD_ATTACHED
+#endif
 
 #endif // GD_MONOUTILS_H

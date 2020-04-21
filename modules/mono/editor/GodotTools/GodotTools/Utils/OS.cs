@@ -5,7 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using Mono.Unix.Native;
+using JetBrains.Annotations;
 
 namespace GodotTools.Utils
 {
@@ -14,6 +14,9 @@ namespace GodotTools.Utils
     {
         [MethodImpl(MethodImplOptions.InternalCall)]
         static extern string GetPlatformName();
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        static extern bool UnixFileHasExecutableAccess(string filePath);
 
         public static class Names
         {
@@ -24,6 +27,7 @@ namespace GodotTools.Utils
             public const string UWP = "UWP";
             public const string Haiku = "Haiku";
             public const string Android = "Android";
+            public const string iOS = "iOS";
             public const string HTML5 = "HTML5";
         }
 
@@ -31,11 +35,12 @@ namespace GodotTools.Utils
         {
             public const string Windows = "windows";
             public const string OSX = "osx";
-            public const string X11 = "x11";
+            public const string X11 = "linuxbsd";
             public const string Server = "server";
             public const string UWP = "uwp";
             public const string Haiku = "haiku";
             public const string Android = "android";
+            public const string iOS = "iphone";
             public const string HTML5 = "javascript";
         }
 
@@ -48,6 +53,7 @@ namespace GodotTools.Utils
             [Names.UWP] = Platforms.UWP,
             [Names.Haiku] = Platforms.Haiku,
             [Names.Android] = Platforms.Android,
+            [Names.iOS] = Platforms.iOS,
             [Names.HTML5] = Platforms.HTML5
         };
 
@@ -63,6 +69,7 @@ namespace GodotTools.Utils
         private static readonly Lazy<bool> _isUWP = new Lazy<bool>(() => IsOS(Names.UWP));
         private static readonly Lazy<bool> _isHaiku = new Lazy<bool>(() => IsOS(Names.Haiku));
         private static readonly Lazy<bool> _isAndroid = new Lazy<bool>(() => IsOS(Names.Android));
+        private static readonly Lazy<bool> _isiOS = new Lazy<bool>(() => IsOS(Names.iOS));
         private static readonly Lazy<bool> _isHTML5 = new Lazy<bool>(() => IsOS(Names.HTML5));
 
         public static bool IsWindows => _isWindows.Value || IsUWP;
@@ -72,10 +79,11 @@ namespace GodotTools.Utils
         public static bool IsUWP => _isUWP.Value;
         public static bool IsHaiku => _isHaiku.Value;
         public static bool IsAndroid => _isAndroid.Value;
+        public static bool IsiOS => _isiOS.Value;
         public static bool IsHTML5 => _isHTML5.Value;
 
         private static bool? _isUnixCache;
-        private static readonly string[] UnixLikePlatforms = {Names.OSX, Names.X11, Names.Server, Names.Haiku, Names.Android};
+        private static readonly string[] UnixLikePlatforms = { Names.OSX, Names.X11, Names.Server, Names.Haiku, Names.Android, Names.iOS };
 
         public static bool IsUnixLike()
         {
@@ -89,12 +97,12 @@ namespace GodotTools.Utils
 
         public static char PathSep => IsWindows ? ';' : ':';
 
-        public static string PathWhich(string name)
+        public static string PathWhich([NotNull] string name)
         {
             return IsWindows ? PathWhichWindows(name) : PathWhichUnix(name);
         }
 
-        private static string PathWhichWindows(string name)
+        private static string PathWhichWindows([NotNull] string name)
         {
             string[] windowsExts = Environment.GetEnvironmentVariable("PATHEXT")?.Split(PathSep) ?? new string[] { };
             string[] pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(PathSep);
@@ -105,7 +113,7 @@ namespace GodotTools.Utils
                 searchDirs.AddRange(pathDirs);
 
             string nameExt = Path.GetExtension(name);
-            bool hasPathExt = string.IsNullOrEmpty(nameExt) || windowsExts.Contains(nameExt, StringComparer.OrdinalIgnoreCase);
+            bool hasPathExt = !string.IsNullOrEmpty(nameExt) && windowsExts.Contains(nameExt, StringComparer.OrdinalIgnoreCase);
 
             searchDirs.Add(System.IO.Directory.GetCurrentDirectory()); // last in the list
 
@@ -113,13 +121,13 @@ namespace GodotTools.Utils
                 return searchDirs.Select(dir => Path.Combine(dir, name)).FirstOrDefault(File.Exists);
 
             return (from dir in searchDirs
-                select Path.Combine(dir, name)
+                    select Path.Combine(dir, name)
                 into path
-                from ext in windowsExts
-                select path + ext).FirstOrDefault(File.Exists);
+                    from ext in windowsExts
+                    select path + ext).FirstOrDefault(File.Exists);
         }
 
-        private static string PathWhichUnix(string name)
+        private static string PathWhichUnix([NotNull] string name)
         {
             string[] pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(PathSep);
 
@@ -131,7 +139,7 @@ namespace GodotTools.Utils
             searchDirs.Add(System.IO.Directory.GetCurrentDirectory()); // last in the list
 
             return searchDirs.Select(dir => Path.Combine(dir, name))
-                .FirstOrDefault(path => File.Exists(path) && Syscall.access(path, AccessModes.X_OK) == 0);
+                .FirstOrDefault(path => File.Exists(path) && UnixFileHasExecutableAccess(path));
         }
 
         public static void RunProcess(string command, IEnumerable<string> arguments)
@@ -157,6 +165,36 @@ namespace GodotTools.Utils
 
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
+                if (IsWindows && process.Id > 0)
+                    User32Dll.AllowSetForegroundWindow(process.Id); // allows application to focus itself
+            }
+        }
+
+        public static int ExecuteCommand(string command, IEnumerable<string> arguments)
+        {
+            // TODO: Once we move to .NET Standard 2.1 we can use ProcessStartInfo.ArgumentList instead
+            string CmdLineArgsToString(IEnumerable<string> args)
+            {
+                // Not perfect, but as long as we are careful...
+                return string.Join(" ", args.Select(arg => arg.Contains(" ") ? $@"""{arg}""" : arg));
+            }
+
+            var startInfo = new ProcessStartInfo(command, CmdLineArgsToString(arguments));
+
+            Console.WriteLine($"Executing: \"{startInfo.FileName}\" {startInfo.Arguments}");
+
+            // Print the output
+            startInfo.RedirectStandardOutput = false;
+            startInfo.RedirectStandardError = false;
+
+            startInfo.UseShellExecute = false;
+
+            using (var process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                process.WaitForExit();
+
+                return process.ExitCode;
             }
         }
     }
